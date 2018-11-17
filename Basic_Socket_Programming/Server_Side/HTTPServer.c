@@ -8,7 +8,6 @@
 
 #define CLIENTS_IN_QUEUE 100
 #define RCVBUFSIZE 1024
-#define DIR "~/CLionProjects/Network/srcs/"
 
 void responseForClient(int sckt);
 void sendMessageToClient(int socket, int code);
@@ -61,16 +60,10 @@ int main(int argc, char *argv[]) {
         if ((clntSock = accept(servSock, (struct sockaddr *) &clntAddr, &clntLen)) < 0)
             DieWithError("accept() failed");
 
-        /* clntSock is connected to a client! */
-        printf("Handling client %s\n", inet_ntoa(clntAddr.sin_addr));
-
         int thrd_num = fork();
-
         if (thrd_num == 0) {
             //Now in the Child Process
-            printf("Create Child\n");
             responseForClient(clntSock);
-            close(clntSock);
             exit(0);
         } else if (thrd_num > 0) {
             //Now in the Parent Process
@@ -85,11 +78,8 @@ int main(int argc, char *argv[]) {
 
 void responseForClient(int sckt) {
 
-    char rcvBuffer[RCVBUFSIZE];
+    char rcvBuffer[RCVBUFSIZE]={0};
     int recvMsgSize;
-
-    printf("In Child\n");
-
     /* Receive message from client */
     if ((recvMsgSize = recv(sckt, rcvBuffer, RCVBUFSIZE, 0)) < 0)
         DieWithError("recv() failed");
@@ -99,44 +89,40 @@ void responseForClient(int sckt) {
     {
         //An Empty Message
         if (strlen(rcvBuffer) == 0) {
-            printf("The Command is Wrong");
             sendMessageToClient(sckt, 404);
         } else {
-            printf("The Message is : %s\n", rcvBuffer);
-
+            printf("%s\n", rcvBuffer);
             char * msgType = strtok(rcvBuffer, " ");
             char *filename = strtok(NULL, " ");
             char *hostname = strtok(NULL, " ");
+            char fileNameTemp[100]={0};
+            strcpy(fileNameTemp, filename);
 
             strtok(filename, ".");
             char *fileType = strtok(NULL, ".");
-            printf("The File Type: %s\n", fileType);
 
             if (!strcmp(fileType, "html") && !strcmp(fileType, "jpg") && !strcmp(fileType, "txt")) {
-                printf("The File Type Error");
                 sendMessageToClient(sckt, 404);
                 return;
             }
 
-            printf("Start Distribute\n");
-
             if(strncmp(msgType, "GET", 3) == 0) {
-                printf("GET Recieved\n");
                 //********************
                 //TODO:Delete it
                 //This Code only for test Get Client
+                send(sckt,"27", sizeof("27"), 0);
                 sendMessageToClient(sckt, 404);
                 //******************
                 //TODO:GetResponse
             } else if(strncmp(msgType, "POST", 4) == 0) {
-                printf("Pooost Recieved\n");
-                postResponse(sckt, filename);
+                postResponse(sckt, fileNameTemp);
             }
         }
 
         //Keep Reading from the user
         recvMsgSize = recv(sckt, rcvBuffer, sizeof(rcvBuffer), 0);
     }
+    close(sckt);
 }
 
 void sendMessageToClient(int sckt, int code) {
@@ -145,46 +131,60 @@ void sendMessageToClient(int sckt, int code) {
 
     switch (code) {
         case 200:
-            msg = "HTTP/1.0 200 OK\\r\\n";
+            msg = "HTTP/1.0 200 OK\\r\\n\r";
             send(sckt,msg, strlen(msg), 0);
             break;
         case 404:
-            msg = "HTTP/1.0 404 Not Found\\r\\n";
+            msg = "HTTP/1.0 404 Not Found\\r\\n\r";
             send(sckt,msg, strlen(msg), 0);
             break;
     }
 }
 
 void postResponse(int sckt, char* filename) {
-
-    char buffer[RCVBUFSIZE];
+    char buffer[BUFSIZ]={0};
+    char fileBuffer[RCVBUFSIZE]={0};
     int file_size;
+    int bytesReceived = 0;
     FILE *received_file;
-    char * filePath;
 
     sendMessageToClient(sckt, 200);
 
     /* Receiving file size */
-    recv(sckt, buffer, RCVBUFSIZE, 0);
+    recv(sckt, buffer, BUFSIZ, 0);
     file_size = atoi(buffer);
 
-    strcpy(filePath, DIR);
-    strcat(filePath, filename);
-
-    received_file = fopen(filePath, "w");
+    received_file = fopen(filename, "w");
 
     if (received_file == NULL)
     {
-        fprintf(stderr, "Failed to open file\n");
-        exit(EXIT_FAILURE);
+        DieWithError("Faild to Open File\n");
     }
 
-    for (int i = recv(sckt, buffer, RCVBUFSIZE, 0); i > 0 && file_size > 0 ; i = recv(sckt, buffer, RCVBUFSIZE, 0)) {
-        fwrite(buffer, sizeof(char), i, received_file);
-        file_size -= i;
+    /* Receive data in chunks*/
+    //TODO:HEre While
+    if(file_size > 0 && (bytesReceived = read(sckt, fileBuffer, RCVBUFSIZE)) > 0)
+    {
+        //printf("Bytes received %s\n",fileBuffer);
+        //printf("The file Size : %d and bytes : %d\n",file_size, bytesReceived);
+        file_size -= bytesReceived;
+        fprintf(received_file, "%s", fileBuffer);
     }
 
     fclose(received_file);
+
+    if(bytesReceived < 0)
+    {
+        DieWithError("\n Read Error \n");
+    }
+
+    /*printf("Start Recieving\n");
+    for (int i = recv(sckt, buffer, RCVBUFSIZE, 0); file_size > 0 && i > 0; i = recv(sckt, buffer, RCVBUFSIZE, 0)) {
+        fwrite(buffer, sizeof(char), i, received_file);
+        file_size -= i;
+    }
+    printf("Finish Recieving\n");
+    fclose(received_file);*/
 }
 
 /*do {
