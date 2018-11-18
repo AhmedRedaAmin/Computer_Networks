@@ -1,10 +1,8 @@
-#include <stdio.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "DieWithError.c"
+#include "Die_with_error.c"
 
 #define CLIENTS_IN_QUEUE 100
 #define RCVBUFSIZE 1024
@@ -12,6 +10,9 @@
 void responseForClient(int sckt);
 void sendMessageToClient(int socket, int code);
 void postResponse(int sckt, char* filename);
+void getResponse(int sckt, char* filename, char* fileType);
+void sendBytes(int sckt, char *filename, char* buffer, FILE *file_to_send);
+void sendText(int sckt, char *filename, char* buffer, FILE *file_to_send);
 
 /* TCP client handling function */
 int main(int argc, char *argv[]) {
@@ -114,6 +115,7 @@ void responseForClient(int sckt) {
                 sendMessageToClient(sckt, 404);
                 //******************
                 //TODO:GetResponse
+                getResponse(sckt,fileNameTemp,fileType);
             } else if(strncmp(msgType, "POST", 4) == 0) {
                 postResponse(sckt, fileNameTemp);
             }
@@ -196,3 +198,73 @@ void postResponse(int sckt, char* filename) {
                 else puts("child did not exit successfully");
             }
         } while (pid == 0);*/
+
+
+void getResponse(int sckt, char* filename, char* fileType){
+    if(access(filename, R_OK) != -1){
+        sendMessageToClient(sckt,200);
+
+        /* buffer to read from the file and send data to socket */
+        char buffer[BUFSIZ]={0};
+        long file_size;
+        FILE * file_to_send;
+
+        /* Opening File to read its contents */
+        file_to_send = fopen(filename, "r");
+        if (file_to_send == NULL)
+        {
+            DieWithError("Faild to Open File\n");
+        }
+
+        /* Sizing The file first */
+        fseek(file_to_send, 0L, SEEK_END);
+        file_size = ftell(file_to_send);
+        rewind(file_to_send);
+        if (file_size < 1) {
+            printf("File is Empty");
+            send(sckt , "NULL", sizeof("NULL") , 0);
+            return;
+        }
+
+        /* Choosing the method of transmit */
+        if(!strcmp(fileType,"txt") || !strcmp(fileType,"html")){
+            sendText(sckt, filename,buffer , file_to_send);
+        } else {
+            sendBytes(sckt, filename,buffer, NULL);
+        }
+    } else {
+        sendMessageToClient(sckt,404);
+        DieWithError("File Doesn't Exist \n ");
+    }
+}
+
+void sendBytes(int sckt, char *filename, char* buffer, FILE *file_to_send) {
+    bzero(buffer,BUFSIZ);
+    size_t chunk_size ;
+    while((chunk_size = fread(buffer, sizeof(char), BUFSIZ, file_to_send)) > 0)
+    {
+        if(send(sckt, buffer, chunk_size , 0) < 0)
+        {
+            printf("Failed to send a chunk of size %ld \n ", chunk_size);
+            break;
+        }
+        bzero(buffer, BUFSIZ);
+    }
+
+    fclose(file_to_send);
+    printf("Ok File %s from Client was Sent!\n", filename);
+}
+
+void sendText(int sckt, char *filename, char* buffer, FILE *file_to_send) {
+    bzero(buffer,BUFSIZ);
+    size_t chunk_size ;
+    while (fgets(buffer, BUFSIZ , file_to_send) != NULL){
+        if(send(sckt, buffer, BUFSIZ , 0) < 0)
+        {
+            printf("Failed to send a chunk of size %d \n ", BUFSIZ);
+            break;
+        }
+    }
+    fclose(file_to_send);
+    printf("Ok File %s from Client was Sent!\n", filename);
+}

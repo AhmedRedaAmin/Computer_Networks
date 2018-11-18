@@ -3,4 +3,5 @@ project(Server_Side C)
 
 set(CMAKE_C_STANDARD 99)
 
-add_executable(Server_Side main.c)
+include_directories(../Client_Side)
+add_executable(Server_Side HTTPServer.c )
