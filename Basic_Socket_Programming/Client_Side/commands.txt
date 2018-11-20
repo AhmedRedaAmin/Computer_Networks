@@ -1,0 +1,4 @@
+GET server.jpg 127.0.0.1
+GET server1.jpg 127.0.0.1
+POST client.jpg 127.0.0.1
+POST client1.jpg 127.0.0.1
