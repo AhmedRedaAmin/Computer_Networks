@@ -120,7 +120,7 @@ int main(int argc, char *argv[]) {
                 perror("In mmap()");
                 exit(1);
             }
-            fprintf(stderr, "Shared memory segment allocated correctly \n");
+            print("Shared memory segment allocated correctly \n");
 
             /* incrementing the shared variable */
             *active_connections = *active_connections + 1;
@@ -134,26 +134,24 @@ int main(int argc, char *argv[]) {
 
             print("Start timeout provision ");
             /* Listening for input stream for any activity */
-            ready_for_reading = select(clntSock+1 , &sckt_set, NULL, NULL, &time_out);
+            while(1){
+                    time_out.tv_usec = (CONNECTION_TIME_OUT_USec/ *active_connections);
+                    ready_for_reading = select(clntSock+1 , &sckt_set, NULL, NULL, &time_out);
+                    //printf("Time out for this connection is %d \n", (CONNECTION_TIME_OUT_USec/ *active_connections));
 
 
-            if (ready_for_reading == -1) {
-                /* Some error has occured in input */
-                print("Unable to read your input\n");
-            } else if (ready_for_reading) {
-                time_out.tv_usec = (CONNECTION_TIME_OUT_USec/ *active_connections);
-                responseForClient(clntSock);
-            } else {
-                printf(" %ld MicroSeconds are over - client not responding \n", time_out.tv_usec);
-                *active_connections = *active_connections - 1;
+                    if (ready_for_reading == -1) {
+                        /* Some error has occured in input */
+                        print("Unable to read your input\n");
+                        break;
+                    } else if (ready_for_reading) {
+                        responseForClient(clntSock);
+                    } else {
+                        print(" Timeout - client not responding - closing connection \n");
+                        break;
+                    }
             }
-
-
-
-
-
-
-
+            *active_connections = *active_connections - 1;
             print("End Connection");
             close(clntSock);
             exit(0);
