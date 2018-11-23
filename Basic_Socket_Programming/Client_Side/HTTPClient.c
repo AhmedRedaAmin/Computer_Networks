@@ -118,7 +118,7 @@ int main(int argc, char *argv[])
     print("End Reading Commands");
     fclose(fp);
     end = clock();
-		cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
+    cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
 
     /*startConnection("GET fileNew2.txt 127.0.0.1\\r\\n\r", "GET","fileNew2.txt","127.0.0.1",8080,sock);
     startConnection("GET fileNew2.txt 127.0.0.1\\r\\n\r", "GET","fileNew2.txt","127.0.0.1",8080,sock);
@@ -128,8 +128,8 @@ int main(int argc, char *argv[])
     startConnection("POST fileNew.txt 127.0.0.1\\r\\n\r", "POST","fileNew.txt","127.0.0.1",8080,sock);
     startConnection("GET fileNew2.txt 127.0.0.1\\r\\n\r", "GET","fileNew2.txt","127.0.0.1",8080,sock);*/
     printf("The Time Taken %f\n", cpu_time_used);
-		printf("The num of Requests %d\n", num_req);
-		printf("The Total Files sizes %d\n", files_sizes);
+    printf("The num of Requests %d\n", num_req);
+    printf("The Total Files sizes %d\n", files_sizes);
     close(sock);
     exit(0);
 }
@@ -188,40 +188,41 @@ void startConnection(char * command, char* command_type, char* file_name, char* 
 }
 
 void handleGoogle(int sock) {
-			    char sendline[BUFSIZ], recvline[BUFSIZ];
-			    char* ptr;
 
-			    size_t n;
+    char sendline[BUFSIZ], recvline[BUFSIZ];
+    char* ptr;
 
-			/// Form request
-			    snprintf(sendline, BUFSIZ,
-			             "GET %s HTTP/1.1\r\n"
-			                     "Host: %s\r\n"
-			                     // other headers as needed
-			                     "\r\n",
-			             "/index.html", // "/d/quotes.csv?s=GOOG&f=nsl1op"
-			             "www.google.com");
+    size_t n;
 
-			/// Write the request
-			    if (write(sock, sendline, strlen(sendline))>= 0)
-			    {
-			        /// Read the response
-			        while ((n = read(sock, recvline, 1024)) > 0)
-			        {
-			            recvline[n] = '\0';
+    /// Form request
+    snprintf(sendline, BUFSIZ,
+             "GET %s HTTP/1.1\r\n"
+                     "Host: %s\r\n"
+                     // other headers as needed
+                     "\r\n",
+             "/index.html", // "/d/quotes.csv?s=GOOG&f=nsl1op"
+             "www.google.com");
 
-			            if(fputs(recvline,stdout) == EOF) { printf("Error"); }
-			            /// Remove the trailing chars
-			            ptr = strstr(recvline, "\r\n\r\n");
+    /// Write the request
+    if (write(sock, sendline, strlen(sendline))>= 0)
+    {
+        /// Read the response
+        while ((n = read(sock, recvline, 1024)) > 0)
+        {
+            recvline[n] = '\0';
 
-			            if (strstr(recvline, "</html>") != NULL) {
-			                break;
-		                }
-                  // check len for OutResponse here ?
-			            //snprintf(OutResponse, MAXRESPONSE,"%s", ptr);
-			        }
-			    }
-		}
+            if(fputs(recvline,stdout) == EOF) { printf("Error"); }
+            /// Remove the trailing chars
+            ptr = strstr(recvline, "\r\n\r\n");
+
+            if (strstr(recvline, "</html>") != NULL) {
+                break;
+            }
+            // check len for OutResponse here ?
+            //snprintf(OutResponse, MAXRESPONSE,"%s", ptr);
+        }
+    }
+}
 
 void handleGetResponse(char* filename, int socket) {
 
