@@ -70,7 +70,6 @@ int main(int argc, char *argv[])
     char * line;
     size_t len = 0;
     ssize_t read;
-    char * pch_file ;
     int port_number = 8080 ;
     char * command_type;
     char * file_name = NULL;
