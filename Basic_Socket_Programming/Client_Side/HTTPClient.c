@@ -11,9 +11,12 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/sendfile.h>
+#include <asm/errno.h>
+#include <errno.h>
 #include "Die_with_error.c"
 
 #define RCVBUFSIZE 10240       /* Size of receive buffer */
+#define PIPELINE 50
 
 void handleGetResponse(char* filename, int socket);
 void handlePostResponse_Request(char* filename, int socket, int fifd);
@@ -135,20 +138,44 @@ void startConnection(char * command, char* command_type, char* file_name, char* 
         handlePostResponse_Request(file_name, sock, filefd);
         print("End Handling Post Response");
     } else if (strcmp(command_type, "GET") == 0){
+        fd_set active_fd_set, read_fd_set;
+        /* Connection request on original socket. */
         print("Start Sending in GET");
         if (send(sock, command, strlen(command), 0) != strlen(command))
             DieWithError("send() sent a different number of bytes than expected");
         print("Stop Sending in GET");
         print("Start Handling GET Response");
-        handleGetResponse(file_name, sock);
+        FD_ZERO (&active_fd_set);
+        FD_SET (sock, &active_fd_set);
+        /* Block until input arrives on one or more active sockets. */
+        read_fd_set = active_fd_set;
+        if (select (FD_SETSIZE, &read_fd_set, NULL, NULL, NULL) < 0)
+        {
+            perror ("select");
+            exit (EXIT_FAILURE);
+        }
+
+        /* Service all the sockets with input pending. */
+        for (int i = 0; i < FD_SETSIZE; ++i)
+            if (FD_ISSET (i, &read_fd_set)) {
+                //If something happened on the master socket ,
+                //then its an incoming connection
+//        if (FD_ISSET(sock, &readfds)) {
+                handleGetResponse(file_name, sock);
+                //      }
+            }
         print("Stop Handling GET Response");
     } else{
+        printf("The Command : %s\n", command);
         DieWithError("Command not supported");
     }
 }
 
 void handleGetResponse(char* filename, int socket) {
 
+    //set of socket descriptors
+
+    //add master socket to set
     int bytesReceived = 0;
     /*char* recvBuff = malloc(RCVBUFSIZE*sizeof(char));
     memset(recvBuff, 0, RCVBUFSIZE);*/
@@ -170,8 +197,7 @@ void handleGetResponse(char* filename, int socket) {
     char repoBuff[BUFSIZ] = {0};
     /*char* repoBuff = malloc(BUFSIZ*sizeof(char));
     memset(repoBuff, 0, BUFSIZ);*/
-
-    //Wait For OK
+        //Wait For OK
     print("Wait From OK for GET");
     if ((recv(socket, repoBuff, BUFSIZ, 0)) > 0) {
         //printf("%s\n", repoBuff);
@@ -181,8 +207,7 @@ void handleGetResponse(char* filename, int socket) {
             print("Create a file in GET");
             FILE *fp;
             fp = fopen(filename, "w");
-            if(fp == NULL)
-            {
+            if (fp == NULL) {
                 DieWithError("Error opening file");
             }
             print("Stop Create a file in GET");
@@ -190,7 +215,7 @@ void handleGetResponse(char* filename, int socket) {
             /* Receive data in chunks*/
             print("While Reading the File from GET");
             while (file_size > 0 && (bytesReceived = recv(socket, recvBuff, RCVBUFSIZE, 0)) > 0)
-            //if ((bytesReceived = recv(socket, recvBuff, RCVBUFSIZE, 0)) > 0)
+                //if ((bytesReceived = recv(socket, recvBuff, RCVBUFSIZE, 0)) > 0)
             {
                 print("************************************ REC Start");
                 //bytesReceived = recv(socket, recvBuff, RCVBUFSIZE, 0);
@@ -204,8 +229,7 @@ void handleGetResponse(char* filename, int socket) {
             //free(recvBuff);
             fclose(fp);
 
-            if(bytesReceived < 0)
-            {
+            if (bytesReceived < 0) {
                 DieWithError("\n Read Error \n");
             }
         }
@@ -309,6 +333,8 @@ int get_file_size(char * filename) {
     file_size = ftell(file_to_send);
     return file_size;
 }
+
+
 
 //char ** parse_command (char * command){
 //    char command_arr [strlen(command)];

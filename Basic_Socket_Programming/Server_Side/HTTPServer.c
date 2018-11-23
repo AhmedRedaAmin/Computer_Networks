@@ -4,30 +4,45 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/mman.h>
+#include <sys/time.h>
 #include <sys/sendfile.h>
 #include <fcntl.h>
+#include <signal.h>
 #include "Die_with_error.c"
 
-#define CLIENTS_IN_QUEUE 10
-#define RCVBUFSIZE 10240
+#define CLIENTS_IN_QUEUE  10
+#define RCVBUFSIZE  10240
+#define CONNECTION_TIME_OUT_Sec  3
+#define CONNECTION_TIME_OUT_USec  3000000
+#define SHMOBJ_PATH  "/ipc_obj"
+#define INT_SIZE  4
 
+void interruptHandler(int signal);
 void responseForClient(int sckt);
-void sendMessageToClient(int socket, int code, int file_size);
+void sendMessageToClient(int sckt, int code, int file_size);
 void postResponse(int sckt, char *filename, int file_size);
 void print(char * str);
 void getResponse(int sckt, char* filename, char* fileType);
 void sendBytes(int sckt, int fileSize, int filed);
-/* TCP client handling function */
+
+/** TCP client handling function */
 int main(int argc, char *argv[]) {
 
     int servSock;
     int clntSock;
+    int *active_connections;
 
     struct sockaddr_in servAddr;
     struct sockaddr_in clntAddr;
+    struct timeval time_out = {CONNECTION_TIME_OUT_Sec,0};
+    fd_set sckt_set;
 
     unsigned short servPort;
     unsigned int clntLen;
+
+
+    signal(SIGINT,interruptHandler);
 
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <Server Port>\n", argv[0]);
@@ -61,6 +76,24 @@ int main(int argc, char *argv[]) {
         DieWithError("listen() failed") ;
     print("End Listen The Socket");
 
+    /* Shared Memory Between Socket processes established */
+    int shmfd;
+
+    /* creating the shared memory object    --  shm_open()  */
+    shmfd = shm_open(SHMOBJ_PATH, O_CREAT | O_EXCL | O_RDWR, S_IRWXU | S_IRWXG);
+    if (shmfd < 0) {
+        perror("In shm_open()");
+        exit(1);
+    }
+    fprintf(stderr, "Created shared memory object %s\n", SHMOBJ_PATH);
+
+    /* adjusting mapped file size (make room for the whole integer)      --  ftruncate() */
+    ftruncate(shmfd, INT_SIZE);
+    /* clearing out the location */
+    active_connections = (int*)mmap(NULL, INT_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
+    *active_connections = 0 ;
+
+
     for (;;) /* Run forever */
     {
         /* Set the size of the in-out parameter */
@@ -72,15 +105,57 @@ int main(int argc, char *argv[]) {
         }
         print("End Accept The Socket");
 
+
+
         int thrd_num = fork();
         if (thrd_num == 0) {
             print("Child created");
             //Now in the Child Process
             print("Start Responding");
-            responseForClient(clntSock);
-            print("End Responding");
+
+
+            /* requesting the shared segment    --  mmap() */
+            active_connections = (int*)mmap(NULL, INT_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
+            if (active_connections == NULL) {
+                perror("In mmap()");
+                exit(1);
+            }
+            fprintf(stderr, "Shared memory segment allocated correctly \n");
+
+            /* incrementing the shared variable */
+            *active_connections = *active_connections + 1;
+
+            int ready_for_reading = 0;
+
+            /* Empty the FD Set */
+            FD_ZERO(&sckt_set );
+            /* Listen to the input descriptor */
+            FD_SET(clntSock, &sckt_set);
+
+            print("Start timeout provision ");
+            /* Listening for input stream for any activity */
+            ready_for_reading = select(clntSock+1 , &sckt_set, NULL, NULL, &time_out);
+
+
+            if (ready_for_reading == -1) {
+                /* Some error has occured in input */
+                print("Unable to read your input\n");
+            } else if (ready_for_reading) {
+                time_out.tv_usec = (CONNECTION_TIME_OUT_USec/ *active_connections);
+                responseForClient(clntSock);
+            } else {
+                printf(" %ld MicroSeconds are over - client not responding \n", time_out.tv_usec);
+                *active_connections = *active_connections - 1;
+            }
+
+
+
+
+
+
+
+            print("End Connection");
             close(clntSock);
-            clntSock = -1;
             exit(0);
         } else if (thrd_num > 0) {
             //Now in the Parent Process
@@ -89,9 +164,12 @@ int main(int argc, char *argv[]) {
             perror("Error Creating the Child");
         }
     }
-    close(servSock);  /* Close socket */
+
 }
 
+/** Top level response function
+ * @param  sckt  The server socket number connected to this client.
+ * */
 void responseForClient(int sckt) {
 
     char rcvBuffer[RCVBUFSIZE]={0};
@@ -146,9 +224,13 @@ void responseForClient(int sckt) {
         print("After Start Keep Receving");
     }
     print("After Start While");
-    //free(rcvBuffer);
 }
 
+/** Sending HTTP reply codes
+ * @param sckt  The server socket connected to this client.
+ * @param code  The HTTP code to be sent to the client.
+ * @param file_size  The size of the file to be sent/received by the client.
+ * */
 void sendMessageToClient(int sckt, int code, int file_size) {
 
     char msg[BUFSIZ] = {0};
@@ -170,8 +252,11 @@ void sendMessageToClient(int sckt, int code, int file_size) {
     }
 }
 
+/** Response for a POST request
+ * @param sckt  The server socket connected to this client.
+ * @param filename  The name of the file sent by the client.
+ * @param file_size  The size of the file to be sent by the client .*/
 void postResponse(int sckt, char *filename, int file_size) {
-    char buffer[BUFSIZ] = {0};
     /*char* buffer = malloc(BUFSIZ*sizeof(char));
     memset(buffer, 0, BUFSIZ);*/
     char fileBuffer[RCVBUFSIZE] = {0};
@@ -232,18 +317,24 @@ void postResponse(int sckt, char *filename, int file_size) {
     fclose(received_file);*/
 }
 
+/** Logging function
+ * @param str String that needs to be outputed on the terminal for logging reasons.
+ * */
 void print(char * str) {
     //printf("%s\n", str);
 }
 
+/** Response for a GET request
+ * @param sckt  The server socket connected to this client.
+ * @param filename The name of the file that should be sent to the client .
+ * @param fileType  The type of the file to be sent to client .
+ * */
 void getResponse(int sckt, char* filename, char* fileType){
 
     //printf("The File Name : %s\n", filename);
 
     if(access(filename, R_OK) != -1){
 
-        /* buffer to read from the file and send data to socket */
-        char buffer[BUFSIZ]={0};
         long file_size;
         FILE * file_to_send;
 
@@ -276,31 +367,15 @@ void getResponse(int sckt, char* filename, char* fileType){
     }
 }
 
+/** Function that sends files as a ByteStream
+ * @param sckt  The server socket connected to this client.
+ * @param fileSize  The size of the file to be sent to client.
+ * @param filed  The file descriptor from which data is taken to be sent to client.
+ * */
 void sendBytes(int sckt, int fileSize, int filed) {
 
     //struct stat file_stat;
     int sent_bytes;
-    /*
-
-    print("Start get File Size to send");
-    if (fstat(filed, &file_stat) < 0)
-    {
-        DieWithError("Error in fstat");
-    }
-    print("Stop get File Size to send");
-
-    int fileSize = file_stat.st_size;*/
-    //char fileSizeStr[BUFSIZ]={0};
-    /*char* fileSizeStr = malloc(BUFSIZ*sizeof(char));
-    memset(fileSizeStr, 0, BUFSIZ);*/
-    //sprintf(fileSizeStr, "%d\r", fileSize);
-
-    /*print("Start Send the File Size");
-    if(send(socket, fileSizeStr, sizeof(fileSizeStr), 0) < 0) {
-        DieWithError("Error while sending size file");
-    }
-    print("Stop Send the File Size");*/
-    //free(fileSizeStr);
 
     /* Sending file data */
     print("Start Send the File in Post");
@@ -311,12 +386,28 @@ void sendBytes(int sckt, int fileSize, int filed) {
     }
 }
 
-/*do {
-            if ((pid = waitpid(pid, &status, WNOHANG)) == -1)
-                perror("wait() error");
-            else {
-                if (WIFEXITED(status))
-                    printf("child exited with status of %d\n", WEXITSTATUS(status));
-                else puts("child did not exit successfully");
-            }
-        } while (pid == 0);*/
+///* Checks client activity
+// * @param clntSock  The server socket connected to this client.
+// * @param time_out The timeout interval before a client is deemed inactive.
+// * @return more than one if the client is active , -1 otherwise.
+// */
+//short is_active(int clntSock, struct timeval time_out) {
+//
+//   if( setsockopt (clntSock, SOL_SOCKET, SO_RCVTIMEO , (char *)&time_out,
+//                sizeof(time_out)) < 0 || setsockopt (clntSock, SOL_SOCKET, SO_RCVTIMEO , (char *)&time_out,
+//                                                     sizeof(time_out)) < 0) {
+//       return 1 ;
+//   }
+//    return -1
+//}
+/** Handles interrupt signal
+ *
+ * @param signal signal type
+ */
+void interruptHandler(int signal){
+    /* Removing shared memory */
+    if (shm_unlink(SHMOBJ_PATH) != 0) {
+        perror("In shm_unlink()");
+        exit(1);
+    }
+}
