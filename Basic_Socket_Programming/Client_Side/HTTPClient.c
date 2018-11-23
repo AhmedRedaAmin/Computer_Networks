@@ -13,6 +13,7 @@
 #include <sys/sendfile.h>
 #include <asm/errno.h>
 #include <errno.h>
+#include <time.h>
 #include "Die_with_error.c"
 
 #define RCVBUFSIZE 10240       /* Size of receive buffer */
@@ -26,12 +27,16 @@ void startConnection(char * command, char* command_type, char* file_name, char* 
 void print(char * str);
 int get_file_size(char * filename);
 
+int files_sizes = 0;
+
 int main(int argc, char *argv[])
 {
     int sock;
     struct sockaddr_in servAddr;
     unsigned short servPort;
     char *servlP;
+    clock_t start, end;
+		double cpu_time_used;
 
     if ((argc< 2) || (argc> 3)) /* Test for correct number of arguments */
     {
@@ -69,11 +74,13 @@ int main(int argc, char *argv[])
     FILE * fp;
     char * line;
     size_t len = 0;
-    ssize_t read;
+    ssize_t read_size;
     int port_number = 8080 ;
     char * command_type;
     char * file_name = NULL;
     char * host_name;
+    int num_req = 0;
+
     print("Before Read File Commands");
     fp = fopen(file_path, "r");
     if (fp == NULL)
@@ -87,7 +94,9 @@ int main(int argc, char *argv[])
     print("After Socket Creation");
 
     print("Start Reading Commands");
-    while ((read = getline(&line, &len, fp)) != -1) {
+    files_sizes = 0;
+		start = clock();
+		while ((read_size = getline(&line, &len, fp)) != -1) {
         print("Start Handling Command");
         char command_arr [strlen(line)];
         strncpy(command_arr , line, strlen(line));
@@ -100,12 +109,16 @@ int main(int argc, char *argv[])
             port_number = atoi(pn);
         print("End Handling Command");
         print("Start Connection");
+        //handleGoogle(sock);
         startConnection(line, command_type,file_name,host_name,port_number,sock);
         print("End Connection");
         print("Close Socket");
+        num_req++;
     }
     print("End Reading Commands");
     fclose(fp);
+    end = clock();
+		cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
 
     /*startConnection("GET fileNew2.txt 127.0.0.1\\r\\n\r", "GET","fileNew2.txt","127.0.0.1",8080,sock);
     startConnection("GET fileNew2.txt 127.0.0.1\\r\\n\r", "GET","fileNew2.txt","127.0.0.1",8080,sock);
@@ -114,6 +127,9 @@ int main(int argc, char *argv[])
     startConnection("GET fileNew2.txt 127.0.0.1\\r\\n\r", "GET","fileNew2.txt","127.0.0.1",8080,sock);
     startConnection("POST fileNew.txt 127.0.0.1\\r\\n\r", "POST","fileNew.txt","127.0.0.1",8080,sock);
     startConnection("GET fileNew2.txt 127.0.0.1\\r\\n\r", "GET","fileNew2.txt","127.0.0.1",8080,sock);*/
+    printf("The Time Taken %f\n", cpu_time_used);
+		printf("The num of Requests %d\n", num_req);
+		printf("The Total Files sizes %d\n", files_sizes);
     close(sock);
     exit(0);
 }
@@ -121,6 +137,7 @@ int main(int argc, char *argv[])
 void startConnection(char * command, char* command_type, char* file_name, char* host_name, int port_num, int sock) {
     if(strcmp(command_type, "POST") == 0){
         int file_size = get_file_size(file_name);
+        files_sizes += file_size;
         char size_str[BUFSIZ] = {0};
         sprintf(size_str, "%d", file_size);
         strncat(command, size_str, strlen(size_str));
@@ -170,6 +187,42 @@ void startConnection(char * command, char* command_type, char* file_name, char* 
     }
 }
 
+void handleGoogle(int sock) {
+			    char sendline[BUFSIZ], recvline[BUFSIZ];
+			    char* ptr;
+
+			    size_t n;
+
+			/// Form request
+			    snprintf(sendline, BUFSIZ,
+			             "GET %s HTTP/1.1\r\n"
+			                     "Host: %s\r\n"
+			                     // other headers as needed
+			                     "\r\n",
+			             "/index.html", // "/d/quotes.csv?s=GOOG&f=nsl1op"
+			             "www.google.com");
+
+			/// Write the request
+			    if (write(sock, sendline, strlen(sendline))>= 0)
+			    {
+			        /// Read the response
+			        while ((n = read(sock, recvline, 1024)) > 0)
+			        {
+			            recvline[n] = '\0';
+
+			            if(fputs(recvline,stdout) == EOF) { printf("Error"); }
+			            /// Remove the trailing chars
+			            ptr = strstr(recvline, "\r\n\r\n");
+
+			            if (strstr(recvline, "</html>") != NULL) {
+			                break;
+		                }
+                  // check len for OutResponse here ?
+			            //snprintf(OutResponse, MAXRESPONSE,"%s", ptr);
+			        }
+			    }
+		}
+
 void handleGetResponse(char* filename, int socket) {
 
     //set of socket descriptors
@@ -202,6 +255,7 @@ void handleGetResponse(char* filename, int socket) {
         //printf("%s\n", repoBuff);
         print("Check OK for POST");
         int file_size = isOK(repoBuff);
+        files_sizes += file_size;
         if (file_size != -1) {
             print("Create a file in GET");
             FILE *fp;
