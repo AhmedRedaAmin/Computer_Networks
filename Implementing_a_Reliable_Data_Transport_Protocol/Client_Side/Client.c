@@ -254,7 +254,7 @@ void fileNameSendAndWait(int sock, struct sockaddr_in servAddr, char * fileNew) 
             printf(" Timeout - server not responding - resending all data \n");
             if (sendto(sock, &filename, sizeof(struct packet), 0, (struct sockaddr*) &servAddr, sizeof(servAddr)))
                 perror("ERROR couldn't send File Name");
-            break;
+            continue;
         }
     }
 
