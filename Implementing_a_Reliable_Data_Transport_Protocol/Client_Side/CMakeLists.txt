@@ -3,4 +3,4 @@ project(Network_Ass2 C)
 
 set(CMAKE_C_STANDARD 99)
 
-add_executable(Network_Ass2 Client.c Reliable.h)
+add_executable(Network_Client Client.c Reliable.h)

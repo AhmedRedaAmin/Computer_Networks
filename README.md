@@ -6,6 +6,7 @@ This repository is intended for collaboration on Networks projects as part of
 ## Projects :
 
 *  Basic Socket Programming in C/C++
+*  Implementing a Reliable Data Transfer Protocol in C/C++
 
 ## Authors :
 
