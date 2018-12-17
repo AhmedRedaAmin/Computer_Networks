@@ -293,6 +293,9 @@ void stopAndWait(char* file_path, int sock, struct sockaddr_in clientAddr, int f
         pck.len = DATASIZE + HEADERSIZE;
         pck.seqno =  index;
 
+        struct timeval time_out = {0,0};
+        fd_set sckt_set;
+
         printStr("May Here1 ");
         memcpy(pck.data, buffer + (index * DATASIZE), DATASIZE);
         printStr(pck.data);
@@ -310,15 +313,50 @@ void stopAndWait(char* file_path, int sock, struct sockaddr_in clientAddr, int f
 
         printStr(pck.data);
 
-        //TODO:Timer Hamdling A reda
 
+
+        int ready_for_reading = 0;
         struct ack_packet ackPck;
         int ss = sizeof(clientAddr);
         printStr("Waiting Rec ack");
+
+        /* Empty the FD Set */
+        FD_ZERO(&sckt_set );
+        /* Listen to the input descriptor */
+        FD_SET(sock, &sckt_set);
+
+
+        /* Listening for input stream for any activity */
+        while(1){
+            time_out.tv_usec = TIMOUT;
+            ready_for_reading = select(sock+1 , &sckt_set, NULL, NULL, &time_out);
+            //printf("Time out for this connection is %d \n", (CONNECTION_TIME_OUT_USec/ *active_connections));
+
+
+            if (ready_for_reading == -1) {
+                /* Some error has occured in reading the port */
+                printf("Can't read from the port\n");
+                break;
+            } else if (ready_for_reading) {
+                recvfrom(sock, &ackPck, sizeof(struct ack_packet), 0, (struct sockaddr*) &clientAddr, &ss);
+                printStrSp("Ack Recieved");
+                printNum(ackPck.ackno);
+                break;
+            } else {
+                printf(" Timeout - server not responding - resending packet \n");
+                random = ((float)rand()/(float)(RAND_MAX));
+
+                printStr("Resending a pck");
+                printNum(pck.seqno);
+                if (random > plp)
+                    sendto(sock, (void *)&(pck), sizeof(struct packet), 0, (struct sockaddr*) &clientAddr, sizeof(clientAddr));
+
+                printStr(pck.data);
+                continue;
+            }
+        }
+
         //Blocking Recieve for ACK
-        recvfrom(sock, &ackPck, sizeof(struct ack_packet), 0, (struct sockaddr*) &clientAddr, &ss);
-        printStrSp("Ack Recieved");
-        printNum(ackPck.ackno);
 
         if (pck.seqno != ackPck.ackno) {
             index--;
@@ -346,6 +384,10 @@ void stopAndWait(char* file_path, int sock, struct sockaddr_in clientAddr, int f
 void gbn(char* file_path, int sock, struct sockaddr_in clientAddr, int fileSize) {
     FILE * fp;
     int remSize = fileSize;
+    int verified_remSize = remSize;
+
+    struct timeval time_out = {0,0};
+    fd_set sckt_set;
 
     printStr("Start Sending");
 
@@ -367,7 +409,7 @@ void gbn(char* file_path, int sock, struct sockaddr_in clientAddr, int fileSize)
         DieWithError("Cant read the file");
 
     for(; remSize > 0;) {
-
+        
         for (int i = nextSeq; i < base + window && bufferSize > 0; i = (i + 1) % seq_number) {
              struct packet pck;
              memset(&pck, 0, sizeof(pck));
@@ -392,21 +434,55 @@ void gbn(char* file_path, int sock, struct sockaddr_in clientAddr, int fileSize)
 
              printStrSp(pck.data);
 
-             //TODO:Timer Hamdling A reda
+             //TODO: handle Resending data in "remSize -= DATASIZE"
 
              nextSeq = (nextSeq + 1) % seq_number;
              remSize -= DATASIZE;
              bufferSize -= DATASIZE;
         }
 
+        int ready_for_reading = 0;
+        int resend_all = 0 ;
         struct ack_packet ackPck;
         int ss = sizeof(clientAddr);
-        printStrSp("Waiting Rec ack");
+        printStr("Waiting Rec ack");
+
+        /* Empty the FD Set */
+        FD_ZERO(&sckt_set );
+        /* Listen to the input descriptor */
+        FD_SET(sock, &sckt_set);
+
+
+        /* Listening for input stream for any activity */
+        while(1){
+            time_out.tv_usec = TIMOUT;
+            ready_for_reading = select(sock+1 , &sckt_set, NULL, NULL, &time_out);
+            //printf("Time out for this connection is %d \n", (CONNECTION_TIME_OUT_USec/ *active_connections));
+
+
+            if (ready_for_reading == -1) {
+                /* Some error has occured in reading the port */
+                printf("Can't read from the port\n");
+                break;
+            } else if (ready_for_reading) {
+                recvfrom(sock, &ackPck, sizeof(struct ack_packet), 0, (struct sockaddr*) &clientAddr, &ss);
+                printStrSp("Ack Recieved");
+                printNum(ackPck.ackno);
+                base = (ackPck.ackno + 1) % seq_number;
+                break;
+            } else {
+                printf(" Timeout - server not responding - resending all packets \n");
+                resend_all = 1 ;
+                break;
+            }
+        }
+
+        // resending from last base
+        if(resend_all == 1){
+            continue; }
+
         //Blocking Recieve for ACK
-        recvfrom(sock, &ackPck, sizeof(struct ack_packet), 0, (struct sockaddr*) &clientAddr, &ss);
-        printStrSp("Ack Recieved");
-        printNum(ackPck.ackno);
-        base = (ackPck.ackno + 1) % seq_number;
+
 
         if (bufferSize == 0 && remSize > DATASIZE) {
             memset(buffer, 0, seq_number * DATASIZE);
