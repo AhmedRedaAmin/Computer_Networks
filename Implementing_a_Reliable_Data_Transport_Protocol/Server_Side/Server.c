@@ -127,23 +127,46 @@ struct input_server read_input(char * file_path) {
 void beginProcess(int fileSize, int sock, struct sockaddr_in clientAddr, char * filename) {
 
     struct ack_packet ackPack;
+    struct timeval time_out = {0,0};
+    fd_set sckt_set;
+
+
     printStr("Sending The size back");
     //Send to the Client the ack with the file size
     sendACK(fileSize, sock, clientAddr);
 
-    //TODO : Add timer for each packet
-    //TODO: Start Timer
 
-    //Wait for Ack
-    printStr("wait for Ack of the size");
+    int ready_for_reading = 0;
     int tr = sizeof(clientAddr);
-    recvfrom(sock, &ackPack, sizeof(ackPack), 0, (struct sockaddr * ) &clientAddr, &tr);
+
+    /* Empty the FD Set */
+    FD_ZERO(&sckt_set );
+    /* Listen to the input descriptor */
+    FD_SET(sock, &sckt_set);
+
+
+    /* Listening for input stream for any activity */
+    while(1){
+        time_out.tv_usec = TIMOUT;
+        ready_for_reading = select(sock+1 , &sckt_set, NULL, NULL, &time_out);
+        printStr("wait for Ack of the size");
+
+        if (ready_for_reading == -1) {
+            /* Some error has occured in reading the port */
+            printf("Can't read from the port\n");
+            break;
+        } else if (ready_for_reading) {
+            //Receive Ack
+            recvfrom(sock, &ackPack, sizeof(ackPack), 0, (struct sockaddr * ) &clientAddr, &tr);
+            break;
+        } else {
+            printf(" Timeout - server not responding - resending packet \n");
+            sendACK(fileSize, sock, clientAddr);
+            continue;
+        }
+    }
 
     printStr("Sending The size Size Rec Ack");
-
-    //TODO: Again handle any timer change
-
-    //TODO: Real work start later
 
     //selectiveRepeat(filename, sock, clientAddr, fileSize);
     //stopAndWait(filename, sock, clientAddr, fileSize);
